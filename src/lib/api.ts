@@ -1020,10 +1020,16 @@ export const llmConfigApi = {
     }, token);
   },
 
-  async validateKey(provider: string, apiKey: string, token: string): Promise<{ valid: boolean; message: string }> {
+  async validateKey(provider: string, apiKey: string, token: string, encrypted = false): Promise<{ valid: boolean; message: string }> {
+    const payload: Record<string, string> = { provider };
+    if (encrypted) {
+      payload.encrypted_api_key = apiKey;
+    } else {
+      payload.api_key = apiKey;
+    }
     return apiRequest<{ valid: boolean; message: string }>('/llm-config/validate', {
       method: 'POST',
-      body: JSON.stringify({ provider, api_key: apiKey }),
+      body: JSON.stringify(payload),
     }, token);
   },
 };
@@ -1040,5 +1046,46 @@ export const healthApi = {
     } catch {
       return false;
     }
+  },
+};
+
+// =============================================================================
+// RSA PUBLIC KEY (for transport encryption)
+// =============================================================================
+
+let _cachedPublicKeyPem: string | null = null;
+
+export async function fetchPublicKey(token: string): Promise<string> {
+  if (_cachedPublicKeyPem) return _cachedPublicKeyPem;
+  const result = await apiRequest<{ public_key: string }>('/admin/public-key', {}, token);
+  _cachedPublicKeyPem = result.public_key;
+  return result.public_key;
+}
+
+// =============================================================================
+// ADMIN PLATFORM CONFIG API
+// =============================================================================
+
+export interface TierModelConfig {
+  provider: string;
+  model: string;
+}
+
+export interface PlatformConfig {
+  tier_models: Record<string, TierModelConfig>;
+  api_keys_set: Record<string, boolean>;
+  default_model: { provider: string; model: string };
+}
+
+export const platformConfigApi = {
+  async get(token: string): Promise<PlatformConfig> {
+    return apiRequest<PlatformConfig>('/admin/platform-config', {}, token);
+  },
+
+  async update(data: { tier_models?: Record<string, TierModelConfig>; api_keys?: Record<string, string> }, token: string): Promise<{ message: string }> {
+    return apiRequest<{ message: string }>('/admin/platform-config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }, token);
   },
 };

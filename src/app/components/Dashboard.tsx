@@ -31,6 +31,7 @@ import {
   UserPlus,
   Users,
   FileAudio,
+  Settings2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useRequireAuth } from '../../lib/auth';
@@ -46,6 +47,7 @@ import { StylesPage } from './StylesPage';
 import { TranslatePage } from './TranslatePage';
 import { WaitlistAdminPage } from './WaitlistAdminPage';
 import { AdminUsersPage } from './AdminUsersPage';
+import { AdminPlatformConfigPage } from './AdminPlatformConfigPage';
 import { TranscribePage } from './TranscribePage';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -53,7 +55,7 @@ interface DashboardProps {
   onNavigate: (page: string) => void;
 }
 
-type TabType = 'dashboard' | 'playground' | 'transcribe' | 'history' | 'snippets' | 'dictionary' | 'styles' | 'translate' | 'prompts' | 'guide' | 'settings' | 'waitlist' | 'admin-users';
+type TabType = 'dashboard' | 'playground' | 'transcribe' | 'history' | 'snippets' | 'dictionary' | 'styles' | 'translate' | 'prompts' | 'guide' | 'settings' | 'waitlist' | 'admin-users' | 'admin-platform';
 
 const baseSidebarTabs = [
   { id: 'dashboard' as TabType, label: 'Dashboard', icon: LayoutDashboard },
@@ -88,7 +90,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   // Build sidebar tabs - admin tab only for verified admins (is_admin comes from /me backend response)
   const sidebarTabs = user?.is_admin
-    ? [...baseSidebarTabs, { id: 'waitlist' as TabType, label: 'Waitlist', icon: UserPlus }, { id: 'admin-users' as TabType, label: 'Users', icon: Users }]
+    ? [...baseSidebarTabs, { id: 'waitlist' as TabType, label: 'Waitlist', icon: UserPlus }, { id: 'admin-users' as TabType, label: 'Users', icon: Users }, { id: 'admin-platform' as TabType, label: 'Platform', icon: Settings2 }]
     : baseSidebarTabs;
 
   const handleUpgrade = async () => {
@@ -234,6 +236,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         return user?.is_admin ? <WaitlistAdminPage token={token} /> : null;
       case 'admin-users':
         return user?.is_admin ? <AdminUsersPage token={token} /> : null;
+      case 'admin-platform':
+        return user?.is_admin ? <AdminPlatformConfigPage token={token} /> : null;
       default:
         return (
           <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">

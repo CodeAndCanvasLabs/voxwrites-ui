@@ -41,7 +41,8 @@ import {
   Power,
   X,
 } from 'lucide-react';
-import { llmConfigApi, type LLMProvider, type LLMConfig } from '../../lib/api';
+import { llmConfigApi, fetchPublicKey, type LLMProvider, type LLMConfig } from '../../lib/api';
+import { encryptWithPublicKey } from '../../lib/crypto';
 
 interface AISettingsTabProps {
   token: string | null;
@@ -70,6 +71,10 @@ export function AISettingsTab({ token, isPro, onNavigate }: AISettingsTabProps) 
   const [isDeletingProvider, setIsDeletingProvider] = useState<string | null>(null);
   const [isTogglingProvider, setIsTogglingProvider] = useState<string | null>(null);
 
+  // Platform model selection state (Google models without BYOK)
+  const [platformModel, setPlatformModel] = useState('');
+  const [isSavingPlatform, setIsSavingPlatform] = useState(false);
+
   const loadData = async () => {
     if (!token) return;
     setIsLoading(true);
@@ -81,6 +86,11 @@ export function AISettingsTab({ token, isPro, onNavigate }: AISettingsTabProps) 
       ]);
       setProviders(providerData.providers);
       setConfigs(configData.configs);
+      // Set platform model if user has an active Google platform config
+      const googleCfg = configData.configs.find(c => c.provider === 'google' && c.is_active);
+      if (googleCfg) {
+        setPlatformModel(googleCfg.selected_model);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load AI settings');
     } finally {
@@ -127,7 +137,17 @@ export function AISettingsTab({ token, isPro, onNavigate }: AISettingsTabProps) 
     setIsValidating(true);
     setValidationResult(null);
     try {
-      const result = await llmConfigApi.validateKey(formProvider, formApiKey, token);
+      // Encrypt the API key before sending
+      let keyToSend = formApiKey;
+      let encrypted = false;
+      try {
+        const pem = await fetchPublicKey(token);
+        keyToSend = await encryptWithPublicKey(formApiKey, pem);
+        encrypted = true;
+      } catch {
+        // RSA not available, fall back to plain text (still over HTTPS)
+      }
+      const result = await llmConfigApi.validateKey(formProvider, keyToSend, token, encrypted);
       setValidationResult(result);
     } catch (err) {
       setValidationResult({ valid: false, message: err instanceof Error ? err.message : 'Validation failed' });
@@ -146,13 +166,20 @@ export function AISettingsTab({ token, isPro, onNavigate }: AISettingsTabProps) 
     setIsSaving(true);
     setError(null);
     try {
-      const data: { provider: string; selected_model: string; api_key?: string; is_active?: boolean } = {
+      const data: { provider: string; selected_model: string; api_key?: string; encrypted_api_key?: string; is_active?: boolean; use_platform_key?: boolean } = {
         provider: formProvider,
         selected_model: formModel,
         is_active: formIsActive,
       };
       if (formApiKey) {
-        data.api_key = formApiKey;
+        // Encrypt the API key before sending
+        try {
+          const pem = await fetchPublicKey(token);
+          data.encrypted_api_key = await encryptWithPublicKey(formApiKey, pem);
+        } catch {
+          // RSA not available, fall back to plain text
+          data.api_key = formApiKey;
+        }
       }
       const result = await llmConfigApi.saveConfig(data, token);
       setSuccessMessage(result.message);
@@ -201,6 +228,25 @@ export function AISettingsTab({ token, isPro, onNavigate }: AISettingsTabProps) 
       setError(err instanceof Error ? err.message : 'Failed to delete configuration');
     } finally {
       setIsDeletingProvider(null);
+    }
+  };
+
+  const handleSavePlatformModel = async () => {
+    if (!token || !platformModel) return;
+    setIsSavingPlatform(true);
+    setError(null);
+    try {
+      await llmConfigApi.saveConfig(
+        { provider: 'google', selected_model: platformModel, is_active: true, use_platform_key: true },
+        token,
+      );
+      setSuccessMessage('Platform model updated');
+      setTimeout(() => setSuccessMessage(null), 3000);
+      loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save platform model');
+    } finally {
+      setIsSavingPlatform(false);
     }
   };
 
@@ -302,6 +348,42 @@ export function AISettingsTab({ token, isPro, onNavigate }: AISettingsTabProps) 
                 Using {activeConfig.selected_model} for text enhancement
               </p>
             </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Platform Model Selection (Google, no API key needed) */}
+      {providers.google && (
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold mb-1">Platform Model</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Choose a Google Gemini model — no API key needed, uses our platform key.
+          </p>
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <Label className="text-xs text-slate-500 mb-1 block">Google Gemini Model</Label>
+              <Select value={platformModel} onValueChange={setPlatformModel}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {providers.google.models.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              className="bg-gradient-to-r from-orange-600 to-orange-500 text-white"
+              onClick={handleSavePlatformModel}
+              disabled={isSavingPlatform || !platformModel}
+            >
+              {isSavingPlatform ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                'Save'
+              )}
+            </Button>
           </div>
         </Card>
       )}
